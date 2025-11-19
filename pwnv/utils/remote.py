@@ -48,14 +48,23 @@ def _ask_for_credentials(methods) -> Dict[str, str | None]:
     from pwnv.utils.ui import error, prompt_text
 
     creds: Dict[str, str | None] = {"username": None, "password": None, "token": None}
-    chosen = inquirer.select(
-        message="Choose authentication method:",
-        choices=[method.name for method in methods],
-    ).execute()
-    if chosen == AuthMethod.CREDENTIALS.name:
+
+    if len(methods) == 1:
+        chosen_method = methods[0]
+    else:
+        choices = [
+            {"name": method.name.capitalize(), "value": method}
+            for method in methods
+        ]
+        chosen_method = inquirer.select(
+            message="Choose authentication method:",
+            choices=choices,
+        ).execute()
+
+    if chosen_method == AuthMethod.CREDENTIALS:
         creds["username"] = prompt_text("Username:")
         creds["password"] = inquirer.secret(message="Password:").execute().strip()
-    elif chosen == AuthMethod.TOKEN.name:
+    elif chosen_method == AuthMethod.TOKEN:
         creds["token"] = inquirer.secret(message="Token:").execute().strip()
     else:
         error("No supported authentication methods found.")
@@ -228,10 +237,19 @@ async def add_remote_challenges(client, ctf: CTF, challenges) -> None:
     for ch in challenges:
         category = normalise_category(ch.category)
         name = sanitize(ch.name)
+        path = ctf.path / category.name / name
+
+        try:
+            ch = await client.attachments.download_all(ch, save_dir=path)
+        except Exception:
+            from pwnv.utils.ui import warn
+
+            warn(f"Skipped attachments for {name}")
+
         challenge = Challenge(
             name=name,
             ctf_id=ctf.id,
-            path=ctf.path / category.name / name,
+            path=path,
             category=category,
             points=ch.value,
             solved=Solved.solved if ch.solved else Solved.unsolved,
@@ -244,12 +262,6 @@ async def add_remote_challenges(client, ctf: CTF, challenges) -> None:
             tags=ch.tags,
         )
         add_challenge(challenge)
-        try:
-            await client.attachments.download_all(ch.attachments, challenge.path)
-        except Exception:
-            from pwnv.utils.ui import warn
-
-            warn(f"Skipped attachments for {challenge.name}")
 
         success(f"{challenge.name} ({challenge.points} pts) added")
 
