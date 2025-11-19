@@ -15,7 +15,7 @@ authors = [
 keywords = ["ctf", "pwn", "rev", "management", "cli", "ctfd", "rctf","cli", "tool", "workspace", "management", "automation", "workflow", "challenges"]
 requires-python = ">=3.12"
 dependencies = [
-    "ctfbridge>=0.2.1",
+    "ctfbridge>=0.8.9",
     "dotenv>=0.9.9",
     "filelock>=3.18.0",
     "inquirer>=3.4.0",
