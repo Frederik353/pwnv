@@ -53,8 +53,7 @@ def _ask_for_credentials(methods) -> Dict[str, str | None]:
         chosen_method = methods[0]
     else:
         choices = [
-            {"name": method.name.capitalize(), "value": method}
-            for method in methods
+            {"name": method.name.capitalize(), "value": method} for method in methods
         ]
         chosen_method = inquirer.select(
             message="Choose authentication method:",
@@ -87,27 +86,27 @@ def _run_async(coro):
     return _runner.run(coro)
 
 
-def add_remote_ctf(ctf: CTF) -> None:
+def add_remote_ctf(ctf: CTF) -> bool:
     """Interactively add ``ctf`` by fetching its challenges remotely."""
     from pwnv.utils.crud import add_ctf, remove_ctf
 
     client, methods = _run_async(get_remote_credential_methods(ctf.url))
     if client is None or methods is None:
-        return
+        return False
     creds = _ask_for_credentials(methods)
     if not creds:
-        return
+        return False
 
     add_ctf(ctf)
 
     if not _run_async(create_remote_session(client, creds, ctf)):
         remove_ctf(ctf)
-        return
+        return False
 
     challenges = _run_async(get_remote_challenges(client, ctf))
     if challenges is None:
         remove_ctf(ctf)
-        return
+        return False
 
     env_path = ctf.path / ".env"
     with open(env_path, "w") as f:
@@ -119,6 +118,7 @@ def add_remote_ctf(ctf: CTF) -> None:
             f.write(f"CTF_TOKEN={creds.get('token')}\n")
 
     _run_async(add_remote_challenges(client, ctf, challenges))
+    return True
 
 
 def sync_remote_ctf(ctf: CTF) -> None:
@@ -246,6 +246,11 @@ async def add_remote_challenges(client, ctf: CTF, challenges) -> None:
 
             warn(f"Skipped attachments for {name}")
 
+        attachments = [
+            att.model_dump(mode="json") for att in getattr(ch, "attachments", [])
+        ]
+        services = [svc.model_dump(mode="json") for svc in getattr(ch, "services", [])]
+
         challenge = Challenge(
             name=name,
             ctf_id=ctf.id,
@@ -256,7 +261,8 @@ async def add_remote_challenges(client, ctf: CTF, challenges) -> None:
             extras={
                 "slug": ch.id,
                 "description": ch.description,
-                "attachments": [att.model_dump() for att in ch.attachments],
+                "attachments": attachments,
+                "services": services,
                 "author": ch.author,
             },
             tags=ch.tags,

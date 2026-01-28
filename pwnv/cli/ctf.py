@@ -38,9 +38,13 @@ def add(name: str) -> None:
         "Do you want to add a remote CTF? (y/n)",
         default=False,
     ):
-        add_remote_ctf(CTF(name=name, path=path, url=prompt_text("Enter the URL:")))
+        if not add_remote_ctf(
+            CTF(name=name, path=path, url=prompt_text("Enter the URL:"))
+        ):
+            return
     else:
         add_ctf(CTF(name=name, path=path))
+
     success(f"CTF [cyan]{name}[/] added.")
 
 

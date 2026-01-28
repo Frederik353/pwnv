@@ -29,10 +29,12 @@ class ChallengePlugin(ABC):
     def _write_template(
         self, challenge: Challenge, template_filename: str, destination_filename: str
     ) -> None:
+        from pwnv.utils.template import render_template
         from pwnv.utils.ui import info
 
         try:
             text = self._load_template(template_filename)
+            text = render_template(text, challenge)
             dest_path = challenge.path / destination_filename
             dest_path.write_text(text)
         except FileNotFoundError:

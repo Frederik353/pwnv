@@ -66,7 +66,7 @@ def save_plugin_selection(selection_data: Dict[str, str]) -> None:
 
 def set_selected_plugin_for_category(category: Category, plugin_name: str) -> None:
     selection = get_plugin_selection()
-    selection[category.name] = plugin_name.lower()
+    selection[category.name] = plugin_name
     save_plugin_selection(selection)
 
 

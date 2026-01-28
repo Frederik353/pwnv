@@ -67,8 +67,9 @@ class PluginManager:
         if not name:
             return None
         self.discover_and_load_plugins()
+        plugin_name_lower = name.lower()
         for plugin in self.get_all_plugins():
-            if plugin.__module__ == name:
+            if plugin.__module__.lower() == plugin_name_lower:
                 return plugin
         return None
 

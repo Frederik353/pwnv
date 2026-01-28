@@ -50,9 +50,9 @@ def solve(flag: str = "") -> None:
         challenge.flag = flag
 
     ctf = get_ctf_by_challenge(challenge)
-    if ctf and (ctf.path / ".env").exists():
+    if ctf and ctf.url and (ctf.path / ".env").exists():
         if not asyncio.run(remote_solve(challenge=challenge, ctf=ctf, flag=flag)):
-            return
+            warn("Remote submission failed or was rejected; keeping local solve state.")
     raw = prompt_text("Enter tags (comma-separated):")
     if raw:
         tags = {t.strip().lower() for t in raw.split(",") if t.strip()}

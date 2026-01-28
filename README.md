@@ -79,6 +79,23 @@ pip install --editable .
 
 -----
 
+## 🧰 Devcontainer (Zed)
+
+This repo includes a devcontainer configuration that isolates `pwnv` state
+inside the workspace. Open the folder in Zed and it will build the container
+and install dev dependencies.
+
+Inside the container, run:
+
+```bash
+source .venv/bin/activate
+pwnv init --ctfs-folder .pwnv/CTF
+```
+
+This keeps config and CTF data under `.pwnv/` (already gitignored).
+
+-----
+
 ## 🧠 Core Concepts
 
 ### Workspace Organization
@@ -137,6 +154,7 @@ Key components include:
   * **`category(self) -> Category:`:** Abstract method that must return the `pwnv.models.challenge.Category` for which this plugin should be considered.
   * **`logic(self, challenge: Challenge) -> None:`:** Abstract method containing the core custom logic to be executed.
   * **`templates_to_copy: Dict[str, str | None]`:** A class attribute specifying which files from the `templates` directory should be copied into the new challenge directory.
+  * **Template placeholders:** Any `{{placeholder}}` tokens in template files are replaced with challenge metadata. Examples: `{{service.host}}`, `{{service.port}}`, `{{service.url}}`, `{{challenge.name}}`, `{{challenge.points}}`. Missing values keep the placeholder unchanged.
 
 ### Example Plugin (`pwn_plugin.py`)
 

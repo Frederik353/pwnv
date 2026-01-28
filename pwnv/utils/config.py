@@ -5,6 +5,7 @@ location of that file, exposes helpers to read and write it and provides
 simple accessor helpers used across the code base.
 """
 
+import os
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -17,17 +18,12 @@ load_dotenv()
 
 def _resolve_config_path() -> Path:
     """Return the path of the configuration file."""
-    import os
-
     import typer
 
-    from pwnv.constants import DEFAULT_CONFIG_BASENAME, PWNV_CONFIG_ENV, PWNV_DEBUG_ENV
+    from pwnv.constants import DEFAULT_CONFIG_BASENAME, PWNV_CONFIG_ENV
 
     if override := os.getenv(PWNV_CONFIG_ENV):
         return Path(override).expanduser().resolve()
-
-    if os.getenv(PWNV_DEBUG_ENV):
-        return Path("/tmp/pwnv") / DEFAULT_CONFIG_BASENAME
 
     for parent in (Path.cwd(), *Path.cwd().parents):
         candidate = parent / DEFAULT_CONFIG_BASENAME

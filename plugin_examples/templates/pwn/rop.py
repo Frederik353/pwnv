@@ -1,6 +1,6 @@
 from pwn import *
 
-con = "localhost 1234"
+con = "{{service.host}} {{service.port}}"
 
 
 host, port = con.replace(" ", ":").split(":")
