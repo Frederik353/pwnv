@@ -169,8 +169,19 @@ def sync_remote_ctf(ctf: CTF) -> None:
     if challenges is None:
         return
 
-    existing = {sanitize(ch.name) for ch in challenges_for_ctf(ctf)}
-    new_challenges = [ch for ch in challenges if sanitize(ch.name) not in existing]
+    local_challenges = {sanitize(ch.name): ch for ch in challenges_for_ctf(ctf)}
+    new_challenges = [ch for ch in challenges if sanitize(ch.name) not in local_challenges]
+
+    # Generate READMEs for existing challenges that don't have one
+    for remote_ch in challenges:
+        name = sanitize(remote_ch.name)
+        if name in local_challenges:
+            local_ch = local_challenges[name]
+            readme_path = local_ch.path / "README.md"
+            if not readme_path.exists():
+                services = [svc.model_dump(mode="json") for svc in getattr(remote_ch, "services", [])]
+                _write_challenge_readme(local_ch, remote_ch, services)
+                info(f"Generated README for {local_ch.name}")
 
     if not new_challenges:
         info("No new challenges found.")
@@ -227,6 +238,44 @@ async def get_remote_challenges(client: Any, ctf: CTF):
         return None
 
 
+def _write_challenge_readme(challenge: Challenge, remote_ch, services) -> None:
+    """Write a README.md with challenge description to the challenge folder."""
+    readme_path = challenge.path / "README.md"
+    challenge.path.mkdir(parents=True, exist_ok=True)
+
+    lines = [f"# {remote_ch.name}", ""]
+
+    meta = []
+    if challenge.category:
+        meta.append(f"**Category:** {challenge.category.name}")
+    if challenge.points:
+        meta.append(f"**Points:** {challenge.points}")
+    if remote_ch.author:
+        meta.append(f"**Author:** {remote_ch.author}")
+    if meta:
+        lines.append(" | ".join(meta))
+        lines.append("")
+
+    if remote_ch.description:
+        lines.append("## Description")
+        lines.append("")
+        lines.append(remote_ch.description)
+        lines.append("")
+
+    if services:
+        lines.append("## Connection")
+        lines.append("")
+        for svc in services:
+            if svc.get("url"):
+                lines.append(f"- {svc['url']}")
+            elif svc.get("host") and svc.get("port"):
+                lines.append(f"- `nc {svc['host']} {svc['port']}`")
+        lines.append("")
+
+    with open(readme_path, "w") as f:
+        f.write("\n".join(lines))
+
+
 async def add_remote_challenges(client, ctf: CTF, challenges) -> None:
     """Persist fetched challenges locally and download attachments."""
     from pwnv.models import Challenge
@@ -268,6 +317,8 @@ async def add_remote_challenges(client, ctf: CTF, challenges) -> None:
             tags=ch.tags,
         )
         add_challenge(challenge)
+
+        _write_challenge_readme(challenge, ch, services)
 
         success(f"{challenge.name} ({challenge.points} pts) added")
 
