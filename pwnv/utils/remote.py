@@ -161,10 +161,22 @@ def add_remote_ctf(ctf: CTF, wait: bool = True, interval: int = 10) -> bool:
     return True
 
 
-def sync_remote_ctf(ctf: CTF) -> None:
-    """Fetch new challenges for ``ctf`` from its remote platform."""
+def _get_creds_from_env(ctf: CTF) -> Dict[str, str | None]:
+    """Load credentials from .env file."""
+    import os
+
     from dotenv import load_dotenv
 
+    load_dotenv(ctf.path / ".env")
+    return {
+        "username": os.getenv("CTF_USERNAME"),
+        "password": os.getenv("CTF_PASSWORD"),
+        "token": os.getenv("CTF_TOKEN"),
+    }
+
+
+def sync_remote_ctf(ctf: CTF) -> None:
+    """Fetch new challenges for ``ctf`` from its remote platform."""
     from pwnv.utils.crud import challenges_for_ctf
     from pwnv.utils.ui import info, warn
 
@@ -176,32 +188,25 @@ def sync_remote_ctf(ctf: CTF) -> None:
     if client is None or methods is None:
         return
 
-    creds: Dict[str, str | None] = {}
+    local_challenges = {sanitize(ch.name): ch for ch in challenges_for_ctf(ctf)}
+
+    # Try to authenticate
+    session_loaded = False
     if (ctf.path / ".session").exists():
         try:
             _run_async(client.session.load(str(ctf.path / ".session")))
+            session_loaded = True
         except Exception as e:
             warn(f"Ignoring broken session cookie ({e}).")
+
+    if not session_loaded:
+        # Need to create a new session
+        if (ctf.path / ".env").exists():
+            creds = _get_creds_from_env(ctf)
+        else:
             creds = _ask_for_credentials(methods)
             if not creds:
                 return
-            if not _run_async(create_remote_session(client, creds, ctf)):
-                return
-    elif (ctf.path / ".env").exists():
-        import os
-
-        load_dotenv(ctf.path / ".env")
-        creds = {
-            "username": os.getenv("CTF_USERNAME"),
-            "password": os.getenv("CTF_PASSWORD"),
-            "token": os.getenv("CTF_TOKEN"),
-        }
-        if not _run_async(create_remote_session(client, creds, ctf)):
-            return
-    else:
-        creds = _ask_for_credentials(methods)
-        if not creds:
-            return
         if not _run_async(create_remote_session(client, creds, ctf)):
             return
 
@@ -209,7 +214,23 @@ def sync_remote_ctf(ctf: CTF) -> None:
     if challenges is None:
         return
 
-    local_challenges = {sanitize(ch.name): ch for ch in challenges_for_ctf(ctf)}
+    # If we got 0 challenges but have local ones, session might be stale - try re-auth
+    if not challenges and local_challenges:
+        warn("Got 0 challenges from server but have local challenges. Session may be stale, re-authenticating...")
+        if (ctf.path / ".env").exists():
+            creds = _get_creds_from_env(ctf)
+        else:
+            creds = _ask_for_credentials(methods)
+            if not creds:
+                return
+        if not _run_async(create_remote_session(client, creds, ctf)):
+            return
+        challenges = _run_async(get_remote_challenges(client, ctf))
+        if challenges is None:
+            return
+
+    info(f"Found {len(challenges)} challenges on server, {len(local_challenges)} local")
+
     new_challenges = [ch for ch in challenges if sanitize(ch.name) not in local_challenges]
 
     # Generate READMEs for existing challenges that don't have one
@@ -227,6 +248,7 @@ def sync_remote_ctf(ctf: CTF) -> None:
         info("No new challenges found.")
         return
 
+    info(f"Downloading {len(new_challenges)} new challenges...")
     _run_async(add_remote_challenges(client, ctf, new_challenges))
 
 
@@ -316,6 +338,27 @@ def _write_challenge_readme(challenge: Challenge, remote_ch, services) -> None:
         f.write("\n".join(lines))
 
 
+async def _download_attachments_with_retry(
+    client, ch, path, max_retries: int = 3, base_delay: float = 2.0
+):
+    """Download attachments with exponential backoff retry."""
+    from pwnv.utils.ui import warn
+
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            return await client.attachments.download_all(ch, save_dir=path)
+        except Exception as e:
+            last_error = e
+            if attempt < max_retries - 1:
+                delay = base_delay * (2 ** attempt)
+                warn(f"Download failed for {ch.name}, retrying in {delay:.0f}s... ({attempt + 1}/{max_retries})")
+                await asyncio.sleep(delay)
+
+    warn(f"Failed to download attachments for {ch.name} after {max_retries} attempts: {last_error}")
+    return ch  # Return original challenge without downloaded attachments
+
+
 async def add_remote_challenges(client, ctf: CTF, challenges) -> None:
     """Persist fetched challenges locally and download attachments."""
     from pwnv.models import Challenge
@@ -328,12 +371,7 @@ async def add_remote_challenges(client, ctf: CTF, challenges) -> None:
         name = sanitize(ch.name)
         path = ctf.path / category.name / name
 
-        try:
-            ch = await client.attachments.download_all(ch, save_dir=path)
-        except Exception:
-            from pwnv.utils.ui import warn
-
-            warn(f"Skipped attachments for {name}")
+        ch = await _download_attachments_with_retry(client, ch, path)
 
         attachments = [
             att.model_dump(mode="json") for att in getattr(ch, "attachments", [])
