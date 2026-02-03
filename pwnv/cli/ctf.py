@@ -13,7 +13,11 @@ app = typer.Typer(no_args_is_help=True, help="Manage CTFs.")
 
 @app.command()
 @config_exists()
-def add(name: str) -> None:
+def add(
+    name: str,
+    no_wait: bool = typer.Option(False, "--no-wait", "-n", help="Don't wait for challenges if CTF hasn't started"),
+    interval: int = typer.Option(10, "--interval", "-i", help="Poll interval in seconds"),
+) -> None:
     """Adds a new CTF, either local or remote, to your environment."""
     from pwnv.utils import (
         add_ctf,
@@ -39,7 +43,9 @@ def add(name: str) -> None:
         default=False,
     ):
         if not add_remote_ctf(
-            CTF(name=name, path=path, url=prompt_text("Enter the URL:"))
+            CTF(name=name, path=path, url=prompt_text("Enter the URL:")),
+            wait=not no_wait,
+            interval=interval,
         ):
             return
     else:

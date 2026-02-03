@@ -24,3 +24,6 @@ DEFAULT_PACKAGES = [
 
 # Default template filename
 DEFAULT_TEMPLATE_FILENAME = "solve.py"
+
+# Wait for CTF defaults
+DEFAULT_POLL_INTERVAL_SECONDS = 10

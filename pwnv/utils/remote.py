@@ -86,9 +86,46 @@ def _run_async(coro):
     return _runner.run(coro)
 
 
-def add_remote_ctf(ctf: CTF) -> bool:
+async def wait_for_challenges(
+    client: Any,
+    ctf: CTF,
+    interval: int = 60,
+) -> list | None:
+    """Poll remote platform until challenges become available."""
+    from pwnv.utils.ui import info
+
+    while True:
+        challenges = await get_remote_challenges(client, ctf)
+
+        if challenges is None:
+            # Error fetching - return None
+            return None
+
+        if challenges:
+            # Challenges available!
+            return challenges
+
+        # Empty list - CTF hasn't started yet
+        info(f"No challenges yet. Checking again in {interval}s... (Ctrl+C to stop)")
+        await asyncio.sleep(interval)
+
+
+def _save_credentials(ctf: CTF, creds: Dict[str, str | None]) -> None:
+    """Save credentials to .env file in CTF folder."""
+    env_path = ctf.path / ".env"
+    with open(env_path, "w") as f:
+        if creds.get("username"):
+            f.write(f"CTF_USERNAME={creds.get('username')}\n")
+        if creds.get("password"):
+            f.write(f"CTF_PASSWORD={creds.get('password')}\n")
+        if creds.get("token"):
+            f.write(f"CTF_TOKEN={creds.get('token')}\n")
+
+
+def add_remote_ctf(ctf: CTF, wait: bool = True, interval: int = 10) -> bool:
     """Interactively add ``ctf`` by fetching its challenges remotely."""
-    from pwnv.utils.crud import add_ctf, remove_ctf
+    from pwnv.utils.crud import add_ctf
+    from pwnv.utils.ui import info, warn
 
     client, methods = _run_async(get_remote_credential_methods(ctf.url))
     if client is None or methods is None:
@@ -99,23 +136,26 @@ def add_remote_ctf(ctf: CTF) -> bool:
 
     add_ctf(ctf)
 
+    # Save credentials early so user can retry with sync if something fails
+    _save_credentials(ctf, creds)
+
     if not _run_async(create_remote_session(client, creds, ctf)):
-        remove_ctf(ctf)
+        # Don't remove CTF - credentials saved, user can retry with sync
         return False
 
     challenges = _run_async(get_remote_challenges(client, ctf))
     if challenges is None:
-        remove_ctf(ctf)
         return False
 
-    env_path = ctf.path / ".env"
-    with open(env_path, "w") as f:
-        if creds.get("username", None):
-            f.write(f"CTF_USERNAME={creds.get('username')}\n")
-        if creds.get("password", None):
-            f.write(f"CTF_PASSWORD={creds.get('password')}\n")
-        if creds.get("token", None):
-            f.write(f"CTF_TOKEN={creds.get('token')}\n")
+    if not challenges:
+        if wait:
+            info("CTF hasn't started. Waiting for challenges...")
+            challenges = _run_async(wait_for_challenges(client, ctf, interval))
+            if challenges is None:
+                return False
+        else:
+            warn("No challenges available yet. Use 'pwnv ctf sync' later.")
+            return True  # CTF created successfully
 
     _run_async(add_remote_challenges(client, ctf, challenges))
     return True
