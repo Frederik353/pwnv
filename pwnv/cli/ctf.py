@@ -182,5 +182,5 @@ def sync() -> None:
         warn("Selected CTF has no remote URL.")
         return
 
-    sync_remote_ctf(chosen_ctf)
-    success(f"CTF [cyan]{chosen_ctf.name}[/] synced.")
+    if sync_remote_ctf(chosen_ctf):
+        success(f"CTF [cyan]{chosen_ctf.name}[/] synced.")

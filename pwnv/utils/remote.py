@@ -175,22 +175,31 @@ def _get_creds_from_env(ctf: CTF) -> Dict[str, str | None]:
     }
 
 
-def sync_remote_ctf(ctf: CTF) -> None:
+def sync_remote_ctf(ctf: CTF) -> bool:
     """Fetch new challenges for ``ctf`` from its remote platform."""
     from pwnv.utils.crud import challenges_for_ctf
     from pwnv.utils.ui import info, warn
 
     if not ctf.url:
         warn("CTF has no remote URL configured.")
-        return
+        return False
 
     client, methods = _run_async(get_remote_credential_methods(ctf.url))
     if client is None or methods is None:
-        return
+        return False
 
     local_challenges = {sanitize(ch.name): ch for ch in challenges_for_ctf(ctf)}
 
-    # Try to authenticate
+    def _authenticate() -> bool:
+        if (ctf.path / ".env").exists():
+            creds = _get_creds_from_env(ctf)
+        else:
+            creds = _ask_for_credentials(methods)
+            if not creds:
+                return False
+        return _run_async(create_remote_session(client, creds, ctf))
+
+    # Try to authenticate with existing session first
     session_loaded = False
     if (ctf.path / ".session").exists():
         try:
@@ -200,34 +209,22 @@ def sync_remote_ctf(ctf: CTF) -> None:
             warn(f"Ignoring broken session cookie ({e}).")
 
     if not session_loaded:
-        # Need to create a new session
-        if (ctf.path / ".env").exists():
-            creds = _get_creds_from_env(ctf)
-        else:
-            creds = _ask_for_credentials(methods)
-            if not creds:
-                return
-        if not _run_async(create_remote_session(client, creds, ctf)):
-            return
+        if not _authenticate():
+            return False
 
     challenges = _run_async(get_remote_challenges(client, ctf))
-    if challenges is None:
-        return
 
-    # If we got 0 challenges but have local ones, session might be stale - try re-auth
-    if not challenges and local_challenges:
-        warn("Got 0 challenges from server but have local challenges. Session may be stale, re-authenticating...")
-        if (ctf.path / ".env").exists():
-            creds = _get_creds_from_env(ctf)
+    # If fetch failed or got 0 challenges but have local ones, session might be stale - try re-auth
+    if challenges is None or (not challenges and local_challenges):
+        if challenges is None:
+            warn("Fetch failed, session may be stale. Re-authenticating...")
         else:
-            creds = _ask_for_credentials(methods)
-            if not creds:
-                return
-        if not _run_async(create_remote_session(client, creds, ctf)):
-            return
+            warn("Got 0 challenges from server but have local challenges. Session may be stale, re-authenticating...")
+        if not _authenticate():
+            return False
         challenges = _run_async(get_remote_challenges(client, ctf))
         if challenges is None:
-            return
+            return False
 
     info(f"Found {len(challenges)} challenges on server, {len(local_challenges)} local")
 
@@ -246,10 +243,11 @@ def sync_remote_ctf(ctf: CTF) -> None:
 
     if not new_challenges:
         info("No new challenges found.")
-        return
+        return True
 
     info(f"Downloading {len(new_challenges)} new challenges...")
     _run_async(add_remote_challenges(client, ctf, new_challenges))
+    return True
 
 
 async def get_remote_credential_methods(
@@ -289,14 +287,24 @@ async def create_remote_session(
 
 async def get_remote_challenges(client: Any, ctf: CTF):
     """Fetch the list of challenges for ``ctf`` from the remote platform."""
+    from pwnv.utils.ui import error
+
+    session_path = ctf.path / ".session"
+    if not session_path.exists():
+        error(f"Session file not found: {session_path}")
+        return None
+
     try:
-        await client.session.load(str(ctf.path / ".session"))
+        await client.session.load(str(session_path))
+    except Exception as e:
+        error(f"Failed to load session: {e}")
+        return None
+
+    try:
         challenges = await client.challenges.get_all()
         return challenges
-    except Exception:
-        from pwnv.utils.ui import error
-
-        error("Failed to fetch challenges.")
+    except Exception as e:
+        error(f"Failed to fetch challenges: {e}")
         return None
 
 
